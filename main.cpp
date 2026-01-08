@@ -5,11 +5,14 @@
 #include <string>
 #include <cstdarg>
 #include <vector>
+#include <filesystem>
+#include <algorithm>
 #include "config_file.h"
 #include "PciDevice.h"
 
 using std::string;
 using std::vector;
+namespace fs = std::filesystem;
 typedef vector<uint32_t> intvec_t;
 
 const uint32_t BC_EMU_RTL_ID = 912018;
@@ -52,6 +55,7 @@ PciDevice device;
 // Forward declarations
 void execute(int argc, const char** argv);
 void read_frame_data_files();
+vector<string> get_file_list_from_directory(std::string directory);
 
 //=============================================================================
 // This routine isn't really a part of the program.  It exists to provide
@@ -83,6 +87,9 @@ void generate_data_files()
 //=============================================================================
 int main(int argc, const char** argv)
 {
+    get_file_list_from_directory(".");
+    exit(1);
+
     try
     {
         execute(argc, argv);
@@ -345,6 +352,40 @@ void read_frame_data_files()
         intvec_t v = read_mt_vector(filename);
         g.frame_data.push_back(v);
     }
+}
+//=============================================================================
+
+
+
+
+//=============================================================================
+// This returns a list containing the name of every .csv file in the specified
+// directory.
+//=============================================================================
+vector<string> get_file_list_from_directory(std::string directory)
+{
+    vector<string> result;
+
+    for (const auto & entry : fs::directory_iterator(directory))
+    {
+        // Get the filesystem::path object for the directory entry
+        auto path = entry.path();
+        
+        // Get the extension of this directory entry
+        auto extent = path.extension();
+
+        // If this is a .csv file, add it to the result list
+        if (fs::is_regular_file(entry.status()) && extent == ".csv")
+        {
+            result.push_back(path.filename());
+        }
+    }
+
+    // Sort the result list
+    std::sort(result.begin(), result.end());
+
+    // Hand the resulting, sorted list to the caller
+    return result;
 }
 //=============================================================================
 
