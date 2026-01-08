@@ -231,6 +231,9 @@ void execute(int argc, const char** argv)
         g.data_files = v;
     }
 
+    // If the user hasn't specified any data files, complain
+    if (g.data_files.empty()) throwRuntime("No data-files specified");
+
     // Read and parse the frame-data files into g.frame_data
     read_frame_data_files();
 
