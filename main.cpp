@@ -83,8 +83,6 @@ void generate_data_files()
 //=============================================================================
 int main(int argc, const char** argv)
 {
-    generate_data_files();
-
     try
     {
         execute(argc, argv);
