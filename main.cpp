@@ -21,6 +21,7 @@ struct global_t
 {
     string   config_file = "bce_feeder.conf";
     string   pci_device;
+    string   dir;
     
     // Offsets to the BC_EMU registers
     uint32_t reg_rtl_id_offset;
@@ -41,7 +42,7 @@ struct global_t
     volatile uint32_t* reg_nshot_limit;
 
     // This is a list of data-files to use for frame-data
-    vector<string> data_file;
+    vector<string> data_files;
 
     // This is a vector of "vectors of 32-bit intgers".  Each integer
     // vector represents the frame data for a single bright-cycle
@@ -87,9 +88,6 @@ void generate_data_files()
 //=============================================================================
 int main(int argc, const char** argv)
 {
-    get_file_list_from_directory(".");
-    exit(1);
-
     try
     {
         execute(argc, argv);
@@ -142,6 +140,12 @@ void parse_command_line(const char** argv)
             continue;
         }
 
+        if (token == "-dir" && argv[i])
+        {
+            g.dir = argv[i++];
+            continue;
+        }
+
         // If we get here, we've encountered a command-line option that
         // we don't recognize
         fprintf(stderr, "Invalid command line option %s\n", token.c_str());
@@ -182,7 +186,7 @@ void parse_config_file(const string filename)
         while (s.get_next_line())
         {
             auto filename = s.get_next_token();
-            g.data_file.push_back(filename);
+            g.data_files.push_back(filename);
         }
     }
 
@@ -219,6 +223,13 @@ void execute(int argc, const char** argv)
 
     // Check to make sure that BC_EMU is actually loaded!
     if (*g.reg_rtl_id != BC_EMU_RTL_ID) throwRuntime("BC_EMU isn't loaded!");
+
+    // If the user gave us a directory name, fetch the filenames from it
+    if (!g.dir.empty())
+    {
+        auto v = get_file_list_from_directory(g.dir);
+        g.data_files = v;
+    }
 
     // Read and parse the frame-data files into g.frame_data
     read_frame_data_files();
@@ -290,6 +301,8 @@ intvec_t read_mt_vector(std::string filename)
     char buffer[0x10000];
     intvec_t result;
 
+    printf("Reading %s\n", filename.c_str());
+
     // Try to open the input file
     FILE* ifile = fopen(filename.c_str(), "r");
 
@@ -347,7 +360,7 @@ intvec_t read_mt_vector(std::string filename)
 //=============================================================================
 void read_frame_data_files()
 {
-    for (auto filename : g.data_file)
+    for (auto filename : g.data_files)
     {
         intvec_t v = read_mt_vector(filename);
         g.frame_data.push_back(v);
@@ -360,7 +373,7 @@ void read_frame_data_files()
 
 //=============================================================================
 // This returns a list containing the name of every .csv file in the specified
-// directory.
+// directory.   The returned list is sorted alphabetically
 //=============================================================================
 vector<string> get_file_list_from_directory(std::string directory)
 {
@@ -368,16 +381,13 @@ vector<string> get_file_list_from_directory(std::string directory)
 
     for (const auto & entry : fs::directory_iterator(directory))
     {
-        // Get the filesystem::path object for the directory entry
-        auto path = entry.path();
-        
         // Get the extension of this directory entry
-        auto extent = path.extension();
+        auto extent = entry.path().extension();
 
         // If this is a .csv file, add it to the result list
         if (fs::is_regular_file(entry.status()) && extent == ".csv")
         {
-            result.push_back(path.filename());
+            result.push_back(entry.path());
         }
     }
 
