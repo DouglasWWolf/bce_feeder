@@ -22,6 +22,7 @@ struct global_t
     string   config_file = "bce_feeder.conf";
     string   pci_device;
     string   dir;
+    int      max_repeats = 1;
     
     // Offsets to the BC_EMU registers
     uint32_t reg_rtl_id_offset;
@@ -57,6 +58,7 @@ PciDevice device;
 void execute(int argc, const char** argv);
 void read_frame_data_files();
 vector<string> get_file_list_from_directory(std::string directory);
+bool start_fifo(uint32_t which);
 
 //=============================================================================
 // This routine isn't really a part of the program.  It exists to provide
@@ -245,11 +247,16 @@ void execute(int argc, const char** argv)
         if (*g.reg_fifo_ctl == 0) break;
     }
 
-    // Place BC_EMU into nshot mode
-    *g.reg_cont_mode = 0;
-    
-    // BC_EMU will make exactly 1 pass through each FIFO
-    *g.reg_nshot_limit = 1;
+    // Place BC_EMU into continuous mode
+    *g.reg_cont_mode = 1;
+
+    // Sending data frames to alternating FIFOs
+    uint32_t which_fifo = 0;
+    while (start_fifo(which_fifo))
+    {
+        which_fifo = 1 - which_fifo;
+    }
+   
 }
 //=============================================================================
 
@@ -402,3 +409,111 @@ vector<string> get_file_list_from_directory(std::string directory)
 }
 //=============================================================================
 
+
+
+//=============================================================================
+// Returns the index (within g.frame_data) of the next vector of frame data
+// to load into a fifo.
+//=============================================================================
+int get_next_frame_index()
+{
+    static int current_frame_index = 0;
+    static int current_repeat = 0;
+
+    // If this is the first time we've been called...
+    if (current_repeat == 0)
+    {
+        current_repeat = 1;
+        return current_frame_index;
+    }
+
+    // We are either going to repeat this frame, or we
+    // need to increment to a new frame
+    if (current_repeat < g.max_repeats)
+        ++current_repeat;
+    else
+    {
+        current_repeat == 1;
+        ++current_frame_index;
+    }
+
+    if (current_frame_index < g.frame_data.size())
+        return current_frame_index;
+
+    // If we get here, there are no more frames of data
+    // available to send
+    return -1;
+}
+//=============================================================================
+
+
+
+//=============================================================================
+// This loads a FIFO, tells the RTL to start sending frames using the data
+// from that FIFO, and waits for the RTL to report that it has begun doing so
+//=============================================================================
+bool start_fifo(uint32_t which)
+{
+    // A pointer to the FIFO register
+    volatile uint32_t* fifo;
+    
+    // This will have a 1 in bit 0 or in bit 1
+    uint32_t           fifo_bit;
+
+    // Determine the runtime parameters for this particular FIFO
+    if (which == 0)
+    {
+        fifo = g.reg_fifo0;
+        fifo_bit = 1 << 0;
+    }
+    else
+    {
+        fifo = g.reg_fifo1;
+        fifo_bit = 1 << 1;
+    }
+
+    // Reset the FIFO (i.e., remove any existing entries)
+    *g.reg_fifo_ctl = fifo_bit;
+    while (*g.reg_fifo_ctl) usleep(100);
+
+    // Find the index of the frame data we should load into the FIFO
+    int index = get_next_frame_index();
+
+    // If we have frame-data to load into the FIFO...
+    if (index >= 0)
+    {
+        printf("Loading frame %i into FIFO_%i...", index, which);
+        fflush(stdout);
+        // Load the frame data into the FIFO
+        intvec_t& frame_data = g.frame_data[index];
+        for (uint32_t v : frame_data)
+        {
+            *fifo = v;
+            usleep(50);
+        }
+
+        // Tell the RTL to put this FIFO "on deck"
+        *g.reg_fifo_select = fifo_bit;
+
+        // Wait for the RTL to make this FIFO active
+        while (*g.reg_fifo_select != fifo_bit) usleep(1000);
+
+        printf("started\n");
+
+        // And tell the caller that his FIFO is loaded and active
+        return true;
+    }
+
+    printf("Stopping job\n");
+
+    // If we get here, we have no more frame-data to send and are
+    // stopping the job
+    *g.reg_fifo_select = 0;
+    while (*g.reg_fifo_select) usleep(1000);
+
+    printf("Job complete\n");
+
+    // Tell the caller that the job is complete
+    return false;
+}
+//=============================================================================
