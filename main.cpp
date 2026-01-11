@@ -273,7 +273,12 @@ void execute(int argc, const char** argv)
     // So far, we've completed no bright-cycles
     g.bc_count = 0;
     *g.reg_bc_count = g.bc_count;
-   
+
+    // Ensure that the RTL is not alreay sending packets
+    // from some previous instantiation
+    *g.reg_fifo_select = 0;
+    while (*g.reg_fifo_select) usleep(1000);
+
     // If the user gave us a directory name, fetch the filenames from it
     if (!g.dir.empty())
     {
@@ -297,6 +302,7 @@ void execute(int argc, const char** argv)
 
     // Place BC_EMU into continuous mode
     *g.reg_cont_mode = 1;
+
 
     // Sending bright-cycles to alternating FIFOs
     uint32_t which_fifo = 0;
