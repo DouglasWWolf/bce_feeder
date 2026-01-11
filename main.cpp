@@ -7,11 +7,11 @@
 #include <vector>
 #include <filesystem>
 #include <algorithm>
+#include <chrono>
 #include "config_file.h"
 #include "PciDevice.h"
 
-using std::string;
-using std::vector;
+using namespace std;
 namespace fs = std::filesystem;
 typedef vector<uint32_t> intvec_t;
 
@@ -23,6 +23,7 @@ struct global_t
     string   pci_device;
     string   dir;
     int      max_repeats = 1;
+    bool     verbose = false;
     
     // Offsets to the BC_EMU registers
     uint32_t reg_rtl_id_offset;
@@ -147,6 +148,19 @@ void parse_command_line(const char** argv)
             g.dir = argv[i++];
             continue;
         }
+
+        if (token == "-repeat" && argv[i])
+        {
+            g.max_repeats = atoi(argv[i++]);
+            continue;
+        }
+
+        if (token == "-verbose")
+        {
+            g.verbose = true;
+            continue;
+        }
+
 
         // If we get here, we've encountered a command-line option that
         // we don't recognize
@@ -311,7 +325,8 @@ intvec_t read_mt_vector(std::string filename)
     char buffer[0x10000];
     intvec_t result;
 
-    printf("Reading %s\n", filename.c_str());
+    // In verbose mode, tell the user what we're doing
+    if (g.verbose) printf("Reading %s\n", filename.c_str());
 
     // Try to open the input file
     FILE* ifile = fopen(filename.c_str(), "r");
@@ -433,7 +448,7 @@ int get_next_frame_index()
         ++current_repeat;
     else
     {
-        current_repeat == 1;
+        current_repeat = 1;
         ++current_frame_index;
     }
 
@@ -460,6 +475,9 @@ bool start_fifo(uint32_t which)
     // This will have a 1 in bit 0 or in bit 1
     uint32_t           fifo_bit;
 
+    // Keep track of when this process starts
+    auto start_time = chrono::steady_clock::now();
+
     // Determine the runtime parameters for this particular FIFO
     if (which == 0)
     {
@@ -482,36 +500,53 @@ bool start_fifo(uint32_t which)
     // If we have frame-data to load into the FIFO...
     if (index >= 0)
     {
-        printf("Loading frame %i into FIFO_%i...", index, which);
-        fflush(stdout);
         // Load the frame data into the FIFO
         intvec_t& frame_data = g.frame_data[index];
         for (uint32_t v : frame_data)
         {
             *fifo = v;
-            usleep(50);
+            usleep(25);
         }
 
         // Tell the RTL to put this FIFO "on deck"
         *g.reg_fifo_select = fifo_bit;
 
+        // Keep track of when the "load FIFO" process completes
+        auto end_time = chrono::steady_clock::now();
+
+        // Compute the duration in milliseconds
+        auto duration = chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);        
+
+        // In verbose mode, show the load time
+        if (g.verbose)
+        {
+            printf("Loaded frame %i into FIFO %i (%lu ms)... ", index, which, duration.count());
+            fflush(stdout);
+        }
+
         // Wait for the RTL to make this FIFO active
         while (*g.reg_fifo_select != fifo_bit) usleep(1000);
 
-        printf("started\n");
+        // In verbose mode, show when the FIFO is in use
+        if (g.verbose) printf("started\n");
 
         // And tell the caller that his FIFO is loaded and active
         return true;
     }
 
-    printf("Stopping job\n");
+    // In verbose mode, tell the user we're stopping the job
+    if (g.verbose)
+    {
+        printf("Stopping job... "); fflush(stdout);
+    }
 
     // If we get here, we have no more frame-data to send and are
     // stopping the job
     *g.reg_fifo_select = 0;
     while (*g.reg_fifo_select) usleep(1000);
 
-    printf("Job complete\n");
+    // In verbose mode, tell the user we're done
+    if (g.verbose) printf("final frame sent, job complete\n");
 
     // Tell the caller that the job is complete
     return false;
