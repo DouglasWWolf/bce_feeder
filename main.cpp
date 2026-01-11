@@ -8,6 +8,10 @@
 #include <filesystem>
 #include <algorithm>
 #include <chrono>
+#include <cstring>
+#include <sys/socket.h>
+#include <netinet/in.h>
+
 #include "config_file.h"
 #include "PciDevice.h"
 
@@ -27,7 +31,6 @@ struct global_t
     uint32_t bc_count;
     
     // Offsets to the BC_EMU registers
-    uint32_t reg_rtl_id_offset;
     uint32_t reg_fifo0_offset;
     uint32_t reg_fifo1_offset;
     uint32_t reg_fifo_ctl_offset;
@@ -35,6 +38,9 @@ struct global_t
     uint32_t reg_cont_mode_offset;
     uint32_t reg_abort_offset;
     uint32_t reg_bc_count_offset;
+    uint32_t reg_rtl_major_offset = 0x00;
+    uint32_t reg_rtl_minor_offset = 0x04;
+    uint32_t reg_rtl_id_offset    = 0x14;
 
     // Pointers (in userspace) to the BC_EMU registers
     volatile uint32_t* reg_rtl_id;
@@ -45,6 +51,8 @@ struct global_t
     volatile uint32_t* reg_cont_mode;
     volatile uint32_t* reg_abort;
     volatile uint32_t* reg_bc_count;
+    volatile uint32_t* reg_rtl_major;
+    volatile uint32_t* reg_rtl_minor;
 
     // This is a list of data-files to use for frame-data
     vector<string> data_files;
@@ -63,6 +71,7 @@ void execute(int argc, const char** argv);
 void read_frame_data_files();
 vector<string> get_file_list_from_directory(std::string directory);
 bool start_fifo(uint32_t which);
+int create_udp_server(int port);
 
 //=============================================================================
 // This routine isn't really a part of the program.  It exists to provide
@@ -189,7 +198,6 @@ void parse_config_file(const string filename)
     cf.get("pci_device", &g.pci_device);
 
     // Fetch the offsets of the registers we care about
-    cf.get("reg_rtl_id",      &g.reg_rtl_id_offset     );
     cf.get("reg_fifo0",       &g.reg_fifo0_offset      );
     cf.get("reg_fifo1",       &g.reg_fifo1_offset      );
     cf.get("reg_fifo_ctl",    &g.reg_fifo_ctl_offset   );
@@ -220,6 +228,12 @@ void parse_config_file(const string filename)
 //=============================================================================
 void execute(int argc, const char** argv)
 {
+    // If we can't create this UDP server, bc_feeder is already running
+    if (create_udp_server(32725) < 0)
+    {
+        throwRuntime("bce_feeder is already running");
+    }
+
     // Parse the command line options
     parse_command_line(argv);
 
@@ -241,10 +255,25 @@ void execute(int argc, const char** argv)
     g.reg_cont_mode   = (uint32_t*)(base_ptr + g.reg_cont_mode_offset);
     g.reg_abort       = (uint32_t*)(base_ptr + g.reg_abort_offset);
     g.reg_bc_count    = (uint32_t*)(base_ptr + g.reg_bc_count_offset);
+    g.reg_rtl_major   = (uint32_t*)(base_ptr + g.reg_rtl_major_offset);
+    g.reg_rtl_minor   = (uint32_t*)(base_ptr + g.reg_rtl_minor_offset);
 
     // Check to make sure that BC_EMU is actually loaded!
     if (*g.reg_rtl_id != BC_EMU_RTL_ID) throwRuntime("BC_EMU isn't loaded!");
 
+    // Determine the major/minor version of the RTL build
+    uint32_t rtl_version = (*g.reg_rtl_major << 16) | *g.reg_rtl_minor;
+
+    // If we don't have the correct version of the BC_EMU RTL, complain
+    if (rtl_version < 0x10018) throwRuntime("BC_EMU version 1.24 or greater required");
+
+    // If this becomes non-zero, we abort
+    *g.reg_abort = 0;
+
+    // So far, we've completed no bright-cycles
+    g.bc_count = 0;
+    *g.reg_bc_count = g.bc_count;
+   
     // If the user gave us a directory name, fetch the filenames from it
     if (!g.dir.empty())
     {
@@ -257,13 +286,6 @@ void execute(int argc, const char** argv)
 
     // Read and parse the frame-data files into g.frame_data
     read_frame_data_files();
-
-    // If this becomes non-zero, we abort
-    *g.reg_abort = 0;
-
-    // So far, we've completed no bright-cycles
-    g.bc_count = 0;
-    *g.reg_bc_count = g.bc_count;
 
     // Reset the BC_EMU FIFOs
     *g.reg_fifo_ctl = 3;
@@ -281,11 +303,10 @@ void execute(int argc, const char** argv)
     while (start_fifo(which_fifo))
     {
         *g.reg_bc_count = g.bc_count++;
-        if (0) for (int i=0; i<1000; ++i)
+        if (0) for (int i=0; i<10; ++i)
         {
             printf("%u\n", *g.reg_bc_count);
         }
-        sleep(4);
         which_fifo = 1 - which_fifo;
     }
 
@@ -542,7 +563,7 @@ bool start_fifo(uint32_t which)
         // In verbose mode, show the load time
         if (g.verbose)
         {
-            printf("Loaded frame %i into FIFO %i (%lu ms)... ", index, which, duration.count());
+            printf("Loaded bright-cycle %i into FIFO %i (%lu ms)... ", index, which, duration.count());
             fflush(stdout);
         }
 
@@ -574,3 +595,35 @@ bool start_fifo(uint32_t which)
     return false;
 }
 //=============================================================================
+
+
+//=============================================================================
+// create_udp_server() - Returns the file-descriptor of an open UDP server socket
+//=============================================================================
+int create_udp_server(int port)
+{
+    // Create the socket and complain if we can't
+    int sd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sd < 0)
+    {
+        throwRuntime("Failed while creating UDP socket");
+    }
+
+    // Build the address structure of the UDP server
+    struct sockaddr_in serveraddr;
+    memset(&serveraddr, 0, sizeof(serveraddr));
+    serveraddr.sin_family = AF_INET;
+    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serveraddr.sin_port = htons((unsigned short)port);
+
+    // Bind the socket to the port
+    if (bind(sd, (struct sockaddr *) &serveraddr, sizeof(serveraddr)) < 0)
+    {
+        return -1;
+    }
+
+    // Return the socket descriptor to the caller
+    return sd;
+}
+//=============================================================================
+
