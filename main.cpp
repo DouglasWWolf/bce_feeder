@@ -32,6 +32,7 @@ struct global_t
     uint32_t reg_fifo_ctl_offset;
     uint32_t reg_fifo_select_offset;
     uint32_t reg_cont_mode_offset;
+    uint32_t reg_abort_offset;
 
     // Pointers (in userspace) to the BC_EMU registers
     volatile uint32_t* reg_rtl_id;
@@ -40,6 +41,7 @@ struct global_t
     volatile uint32_t* reg_fifo_ctl;
     volatile uint32_t* reg_fifo_select;
     volatile uint32_t* reg_cont_mode;
+    volatile uint32_t* reg_abort;
 
     // This is a list of data-files to use for frame-data
     vector<string> data_files;
@@ -190,6 +192,7 @@ void parse_config_file(const string filename)
     cf.get("reg_fifo_ctl",    &g.reg_fifo_ctl_offset   );
     cf.get("reg_fifo_select", &g.reg_fifo_select_offset);
     cf.get("reg_cont_mode",   &g.reg_cont_mode_offset  );
+    cf.get("reg_abort",       &g.reg_abort_offset      );
 
     // If "data_files" exists in the configuration file, fetch a list 
     // of data-files to use as frame-data
@@ -232,6 +235,7 @@ void execute(int argc, const char** argv)
     g.reg_fifo_ctl    = (uint32_t*)(base_ptr + g.reg_fifo_ctl_offset);
     g.reg_fifo_select = (uint32_t*)(base_ptr + g.reg_fifo_select_offset);
     g.reg_cont_mode   = (uint32_t*)(base_ptr + g.reg_cont_mode_offset);
+    g.reg_abort       = (uint32_t*)(base_ptr + g.reg_abort_offset);
 
     // Check to make sure that BC_EMU is actually loaded!
     if (*g.reg_rtl_id != BC_EMU_RTL_ID) throwRuntime("BC_EMU isn't loaded!");
@@ -248,6 +252,9 @@ void execute(int argc, const char** argv)
 
     // Read and parse the frame-data files into g.frame_data
     read_frame_data_files();
+
+    // If this becomes non-zero, we abort
+    *g.reg_abort = 0;
 
     // Reset the BC_EMU FIFOs
     *g.reg_fifo_ctl = 3;
@@ -494,7 +501,7 @@ bool start_fifo(uint32_t which)
     int index = get_next_frame_index();
 
     // If we have frame-data to load into the FIFO...
-    if (index >= 0)
+    if (index >= 0 && *g.reg_abort == 0)
     {
         // Load the frame data into the FIFO
         intvec_t& frame_data = g.frame_data[index];
