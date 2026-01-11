@@ -228,14 +228,14 @@ void parse_config_file(const string filename)
 //=============================================================================
 void execute(int argc, const char** argv)
 {
+    // Parse the command line options
+    parse_command_line(argv);
+
     // If we can't create this UDP server, bc_feeder is already running
     if (create_udp_server(32725) < 0)
     {
         throwRuntime("bce_feeder is already running");
     }
-
-    // Parse the command line options
-    parse_command_line(argv);
 
     // Parse the configuration file
     parse_config_file(g.config_file);

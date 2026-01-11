@@ -17,7 +17,7 @@ pid=$!
 
 # Here we are going to sit in a loop until either
 # the first bright-cycle has been sent or until the
-# bce_feeder software exits due to some errora
+# bce_feeder software exits due to some error
 while :; do
     complete=$(pcireg -dec $REG_BC_COUNT)
     test $complete -ne 0 && break
