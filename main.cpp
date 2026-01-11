@@ -11,7 +11,7 @@
 #include <cstring>
 #include <sys/socket.h>
 #include <netinet/in.h>
-
+#include "history.h"
 #include "config_file.h"
 #include "PciDevice.h"
 
@@ -230,6 +230,12 @@ void execute(int argc, const char** argv)
 {
     // Parse the command line options
     parse_command_line(argv);
+
+    // In verbose mode, show the software version
+    if (g.verbose)
+    {
+        printf("bce_feeder v%s\n",SW_VERSION);        
+    }
 
     // If we can't create this UDP server, bc_feeder is already running
     if (create_udp_server(32725) < 0)
