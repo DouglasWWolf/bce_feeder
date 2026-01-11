@@ -24,6 +24,7 @@ struct global_t
     string   dir;
     int      max_repeats = 1;
     bool     verbose = false;
+    uint32_t bc_count;
     
     // Offsets to the BC_EMU registers
     uint32_t reg_rtl_id_offset;
@@ -33,6 +34,7 @@ struct global_t
     uint32_t reg_fifo_select_offset;
     uint32_t reg_cont_mode_offset;
     uint32_t reg_abort_offset;
+    uint32_t reg_bc_count_offset;
 
     // Pointers (in userspace) to the BC_EMU registers
     volatile uint32_t* reg_rtl_id;
@@ -42,6 +44,7 @@ struct global_t
     volatile uint32_t* reg_fifo_select;
     volatile uint32_t* reg_cont_mode;
     volatile uint32_t* reg_abort;
+    volatile uint32_t* reg_bc_count;
 
     // This is a list of data-files to use for frame-data
     vector<string> data_files;
@@ -193,6 +196,7 @@ void parse_config_file(const string filename)
     cf.get("reg_fifo_select", &g.reg_fifo_select_offset);
     cf.get("reg_cont_mode",   &g.reg_cont_mode_offset  );
     cf.get("reg_abort",       &g.reg_abort_offset      );
+    cf.get("reg_bc_count",    &g.reg_bc_count_offset   );
 
     // If "data_files" exists in the configuration file, fetch a list 
     // of data-files to use as frame-data
@@ -236,6 +240,7 @@ void execute(int argc, const char** argv)
     g.reg_fifo_select = (uint32_t*)(base_ptr + g.reg_fifo_select_offset);
     g.reg_cont_mode   = (uint32_t*)(base_ptr + g.reg_cont_mode_offset);
     g.reg_abort       = (uint32_t*)(base_ptr + g.reg_abort_offset);
+    g.reg_bc_count    = (uint32_t*)(base_ptr + g.reg_bc_count_offset);
 
     // Check to make sure that BC_EMU is actually loaded!
     if (*g.reg_rtl_id != BC_EMU_RTL_ID) throwRuntime("BC_EMU isn't loaded!");
@@ -256,6 +261,10 @@ void execute(int argc, const char** argv)
     // If this becomes non-zero, we abort
     *g.reg_abort = 0;
 
+    // So far, we've completed no bright-cycles
+    g.bc_count = 0;
+    *g.reg_bc_count = g.bc_count;
+
     // Reset the BC_EMU FIFOs
     *g.reg_fifo_ctl = 3;
     while (true)
@@ -267,12 +276,22 @@ void execute(int argc, const char** argv)
     // Place BC_EMU into continuous mode
     *g.reg_cont_mode = 1;
 
-    // Sending data frames to alternating FIFOs
+    // Sending bright-cycles to alternating FIFOs
     uint32_t which_fifo = 0;
     while (start_fifo(which_fifo))
     {
+        *g.reg_bc_count = g.bc_count++;
+        if (0) for (int i=0; i<1000; ++i)
+        {
+            printf("%u\n", *g.reg_bc_count);
+        }
+        sleep(4);
         which_fifo = 1 - which_fifo;
     }
+
+    // Tell the bright-cycle count register how many bright-cycles 
+    // were completed
+    *g.reg_bc_count = g.bc_count;
    
 }
 //=============================================================================
