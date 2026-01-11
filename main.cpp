@@ -32,7 +32,6 @@ struct global_t
     uint32_t reg_fifo_ctl_offset;
     uint32_t reg_fifo_select_offset;
     uint32_t reg_cont_mode_offset;
-    uint32_t reg_nshot_limit_offset;
 
     // Pointers (in userspace) to the BC_EMU registers
     volatile uint32_t* reg_rtl_id;
@@ -41,7 +40,6 @@ struct global_t
     volatile uint32_t* reg_fifo_ctl;
     volatile uint32_t* reg_fifo_select;
     volatile uint32_t* reg_cont_mode;
-    volatile uint32_t* reg_nshot_limit;
 
     // This is a list of data-files to use for frame-data
     vector<string> data_files;
@@ -192,7 +190,6 @@ void parse_config_file(const string filename)
     cf.get("reg_fifo_ctl",    &g.reg_fifo_ctl_offset   );
     cf.get("reg_fifo_select", &g.reg_fifo_select_offset);
     cf.get("reg_cont_mode",   &g.reg_cont_mode_offset  );
-    cf.get("reg_nshot_limit", &g.reg_nshot_limit_offset);
 
     // If "data_files" exists in the configuration file, fetch a list 
     // of data-files to use as frame-data
@@ -235,7 +232,6 @@ void execute(int argc, const char** argv)
     g.reg_fifo_ctl    = (uint32_t*)(base_ptr + g.reg_fifo_ctl_offset);
     g.reg_fifo_select = (uint32_t*)(base_ptr + g.reg_fifo_select_offset);
     g.reg_cont_mode   = (uint32_t*)(base_ptr + g.reg_cont_mode_offset);
-    g.reg_nshot_limit = (uint32_t*)(base_ptr + g.reg_nshot_limit_offset);
 
     // Check to make sure that BC_EMU is actually loaded!
     if (*g.reg_rtl_id != BC_EMU_RTL_ID) throwRuntime("BC_EMU isn't loaded!");
