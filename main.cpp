@@ -28,6 +28,7 @@ struct global_t
     string   dir;
     int      max_repeats = 1;
     bool     verbose = false;
+    bool     help = false;
     uint32_t bc_count;
     
     // Offsets to the BC_EMU registers
@@ -85,7 +86,7 @@ void generate_data_files()
     {
         sprintf(filename, "frame_data_%02i.csv", file);
         FILE* ofile = fopen(filename, "w");
-        for (int entry = 0; entry<4297; ++entry)
+        for (int entry = 0; entry<4592; ++entry)
         {
             fprintf(ofile, "0x%08X\n", entry | (file << 24));
         }
@@ -173,6 +174,12 @@ void parse_command_line(const char** argv)
             continue;
         }
 
+        if (token == "-help")
+        {
+            g.help = true;
+            continue;
+        }
+
 
         // If we get here, we've encountered a command-line option that
         // we don't recognize
@@ -224,12 +231,38 @@ void parse_config_file(const string filename)
 
 
 //=============================================================================
+// This just displays help text and exits
+//=============================================================================
+void show_help()
+{
+    printf("bce_feeder v%s\n",SW_VERSION);            
+
+    printf
+    (
+        "Usage: bce_feeder [switches]\n"
+        "Valid switches\n"
+        "  -config <filename> = Specify configuration file\n"
+        "  -dir <dir_name>    = Specify directory for data_files\n"
+        "  -repeat <count>    = Specify number of times to send each bright-cycle\n"
+        "  -verbose           = Show debugging messages\n"
+        "  -help              = Show this help text\n"
+    );
+      
+    exit(0);
+}
+//=============================================================================
+
+
+
+//=============================================================================
 // This is the true top-level execution of this program
 //=============================================================================
 void execute(int argc, const char** argv)
 {
     // Parse the command line options
     parse_command_line(argv);
+
+    if (g.help) show_help();
 
     // In verbose mode, show the software version
     if (g.verbose)

@@ -12,7 +12,7 @@ echo "Initializing bce_feeder"
 
 # Set the count of bright-cycles completed to 0
 pcireg $REG_BC_COUNT 0
-sudo ./bce_feeder.x86 -repeat 5 &
+sudo ./bce_feeder.x86 -repeat 2 &
 pid=$!
 
 # Here we are going to sit in a loop until either
